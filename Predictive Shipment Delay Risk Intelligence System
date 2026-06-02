@@ -1,0 +1,96 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import joblib
+
+st.set_page_config(
+    page_title="APL Logistics Delay Risk Dashboard",
+    layout="wide"
+)
+
+@st.cache_resource
+def load_model():
+    return joblib.load("late_delivery_model.pkl")
+
+model = load_model()
+
+st.title("APL Logistics Late Delivery Risk Prediction")
+st.write("Predict whether an order is likely to be delayed before shipment.")
+
+st.sidebar.header("Order Inputs")
+
+def user_input():
+    data = {
+        "Type": st.sidebar.selectbox("Payment Type", ["Debit", "Credit", "Cash", "Transfer"]),
+        "Days for shipment (scheduled)": st.sidebar.number_input("Scheduled Shipping Days", 1, 30, 4),
+        "Benefit per order": st.sidebar.number_input("Benefit per Order", 0.0, 10000.0, 50.0),
+        "Sales per customer": st.sidebar.number_input("Sales per Customer", 0.0, 50000.0, 500.0),
+        "Category Name": st.sidebar.text_input("Category Name", "Electronics"),
+        "Customer City": st.sidebar.text_input("Customer City", "Mumbai"),
+        "Customer Country": st.sidebar.text_input("Customer Country", "India"),
+        "Customer Segment": st.sidebar.selectbox("Customer Segment", ["Consumer", "Corporate", "Home Office"]),
+        "Market": st.sidebar.text_input("Market", "Asia Pacific"),
+        "Order Country": st.sidebar.text_input("Order Country", "India"),
+        "Order Item Discount": st.sidebar.number_input("Order Item Discount", 0.0, 1000.0, 20.0),
+        "Order Item Discount Rate": st.sidebar.number_input("Discount Rate", 0.0, 1.0, 0.1),
+        "Order Item Product Price": st.sidebar.number_input("Item Product Price", 0.0, 10000.0, 200.0),
+        "Order Item Profit Ratio": st.sidebar.number_input("Profit Ratio", -1.0, 2.0, 0.2),
+        "Order Item Quantity": st.sidebar.number_input("Order Item Quantity", 1, 100, 2),
+        "Sales": st.sidebar.number_input("Sales", 0.0, 100000.0, 400.0),
+        "Order Item Total": st.sidebar.number_input("Order Item Total", 0.0, 100000.0, 360.0),
+        "Order Profit Per Order": st.sidebar.number_input("Order Profit Per Order", -1000.0, 10000.0, 40.0),
+        "Order Region": st.sidebar.text_input("Order Region", "South Asia"),
+        "Order State": st.sidebar.text_input("Order State", "Uttar Pradesh"),
+        "Order Status": st.sidebar.selectbox("Order Status", ["Complete", "Pending", "Processing", "On Hold"]),
+        "Product Price": st.sidebar.number_input("Product Price", 0.0, 10000.0, 200.0),
+        "Shipping Mode": st.sidebar.selectbox("Shipping Mode", ["Standard Class", "Second Class", "First Class", "Same Day"])
+    }
+    df = pd.DataFrame([data])
+
+    df["Shipping_Pressure_Index"] = (
+        df["Order Item Quantity"] / df["Days for shipment (scheduled)"].replace(0, 1)
+    )
+    df["Is_Express_Mode"] = df["Shipping Mode"].astype(str).str.lower().isin(
+        ["express", "same day", "first class"]
+    ).astype(int)
+    df["Avg_Sales_Per_Item"] = df["Sales"] / df["Order Item Quantity"].replace(0, 1)
+
+    return df
+
+input_df = user_input()
+
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    st.subheader("Input Order Data")
+    st.dataframe(input_df, use_container_width=True)
+
+with col2:
+    if st.button("Predict Delay Risk"):
+        proba = model.predict_proba(input_df)[0][1]
+        pred = model.predict(input_df)[0]
+
+        if proba < 0.35:
+            risk = "Low Risk"
+        elif proba < 0.70:
+            risk = "Medium Risk"
+        else:
+            risk = "High Risk"
+
+        st.metric("Late Delivery Probability", f"{proba:.2%}")
+        st.metric("Predicted Class", int(pred))
+        st.metric("Risk Category", risk)
+
+        if risk == "High Risk":
+            st.error("Immediate operational attention recommended.")
+        elif risk == "Medium Risk":
+            st.warning("Selective intervention recommended.")
+        else:
+            st.success("Routine monitoring is sufficient.")
+
+st.subheader("Operations Notes")
+st.markdown("""
+- Use high-risk predictions for proactive rerouting or customer communication.
+- Combine delay probability with order value for intervention priority.
+- Extend this app with region heatmaps and shipping mode analysis using historical data.
+""")
